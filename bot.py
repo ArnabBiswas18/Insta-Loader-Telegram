@@ -2,71 +2,74 @@ import logging
 import os
 import instaloader
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram.constants import ParseMode
 from dotenv import load_dotenv
+from flask import Flask, request
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
-
-# Token from BotFather (make sure you set the token in .env)
 TOKEN = os.getenv('BOT_API_TOKEN')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # Your Render or hosting URL
+
+# Initialize Flask app
+app = Flask(__name__)
 
 # Set up logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Instaloader
-L = instaloader.Instaloader()
+loader = instaloader.Instaloader()
 
-# Define command handler for /start
-async def start(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text('Hello! I am your bot. Send me an Instagram link, and I\'ll process it for you.')
+# Bot logic
+async def start(update: Update, context) -> None:
+    await update.message.reply_text("Hello! Send me an Instagram link to get started.")
 
-# Define a function to handle regular messages (process Instagram links)
-async def handle_message(update: Update, context: CallbackContext) -> None:
+async def handle_message(update: Update, context) -> None:
     message_text = update.message.text
-
-    # Check if message contains a link (specifically an Instagram link)
     if "instagram.com" in message_text:
         try:
-            # Download the content from Instagram using instaloader
-            post = instaloader.Post.from_shortcode(L.context, message_text.split("/")[-2])
-            media_url = post.url  # Get the URL of the media (image or video)
-            
-            # Check the type of content (image or video)
+            await update.message.reply_text(f"Processing the link: {message_text}")
+            # Process the Instagram link
+            post = instaloader.Post.from_shortcode(loader.context, message_text.split("/")[-2])
             if post.is_video:
-                await update.message.reply_text("Sending you the video...")
-                await update.message.reply_video(media_url)
+                await update.message.reply_video(post.url)
             else:
-                await update.message.reply_text("Sending you the image...")
-                await update.message.reply_photo(media_url)
-
+                await update.message.reply_photo(post.url)
         except Exception as e:
-            await update.message.reply_text(f"Error occurred: {str(e)}")
+            await update.message.reply_text(f"Error: {e}")
             logger.error(f"Error processing link {message_text}: {e}")
-
     else:
         await update.message.reply_text("Please send a valid Instagram link.")
 
-def main() -> None:
-    """Start the bot."""
-    # Check if TOKEN is loaded from environment variables
-    if not TOKEN:
-        logger.error('TOKEN is not set. Please add BOT_API_TOKEN to your .env file.')
-        return
+# Initialize bot application
+application = Application.builder().token(TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Initialize the Application with your bot's token
-    application = Application.builder().token(TOKEN).build()
+# Flask routes for webhook
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Receive updates from Telegram."""
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)
+    return "OK", 200
 
-    # Register the /start command handler
-    application.add_handler(CommandHandler("start", start))
+@app.route('/set_webhook', methods=['GET'])
+def set_webhook():
+    """Set the Telegram webhook."""
+    success = application.bot.set_webhook(WEBHOOK_URL + "/webhook")
+    if success:
+        return "Webhook set successfully!", 200
+    else:
+        return "Failed to set webhook.", 400
 
-    # Register the message handler
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint."""
+    return "Bot is running!", 200
 
-    # Start polling (long polling to receive updates)
-    application.run_polling()
-
+# Start Flask server
 if __name__ == '__main__':
-    main()
+    app.run(host='0.0.0.0', port=5000)
