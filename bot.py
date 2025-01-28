@@ -1,76 +1,60 @@
-from flask import Flask, request
-from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
-from dotenv import load_dotenv
-import os
 import logging
+import os
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
+from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Get the token from the environment
-TOKEN = os.getenv("BOT_API_TOKEN")
-
-# Raise an error if the token is missing
-if not TOKEN:
-    raise ValueError("BOT_API_TOKEN is missing. Please set it in the .env file.")
-
-# Set up the bot and logging
-bot = Bot(TOKEN)
-
-# Set up Flask web server
-app = Flask(__name__)
+# Token from BotFather (make sure you set the token in .env)
+TOKEN = os.getenv('BOT_API_TOKEN')
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Bot functions
+# Define command handler for /start
+def start(update: Update, context: CallbackContext) -> None:
+    update.message.reply_text('Hello! I am your bot. Send me a link and I\'ll process it for you.')
 
-def start(update, context):
-    """Send a welcome message when the bot starts"""
-    update.message.reply_text('Hello! Send me an Instagram post or reel link and I will help you download it!')
+# Define a function to handle regular messages
+def handle_message(update: Update, context: CallbackContext) -> None:
+    # Check if message contains a link (you can improve this as needed)
+    if update.message.entities:
+        for entity in update.message.entities:
+            if entity.type == 'url':
+                # Here you can add your logic to process the URL and send the file or response
+                update.message.reply_text(f'Processing the link: {update.message.text}')
+                # You can replace this with actual download and file sending logic
+                return
+    update.message.reply_text('Send me a link to process.')
 
-def help(update, context):
-    """Provide help message"""
-    update.message.reply_text("Send me an Instagram URL (post/reel) and I will send you the download link.")
+def main() -> None:
+    """Start the bot."""
+    # Check if TOKEN is loaded from environment variables
+    if not TOKEN:
+        logger.error('TOKEN is not set. Please add BOT_API_TOKEN to your .env file.')
+        return
 
-def handle_message(update, context):
-    """Handle non-command messages"""
-    text = update.message.text
-    if 'instagram.com' in text:
-        # Here you can handle the Instagram link processing
-        update.message.reply_text("Processing the Instagram link... Please wait.")
-        # Add your logic here for processing the Instagram link and sending the download link
-        update.message.reply_text("Here is the download link: <download_link>")
-    else:
-        update.message.reply_text("Please send a valid Instagram link.")
+    # Initialize the Updater with your bot's token
+    updater = Updater(TOKEN, use_context=True)
 
-# Set up Flask route to handle webhook
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    json_str = request.get_data().decode("UTF-8")
-    update = Update.de_json(json_str, bot)
-    application.process_update(update)
-    return 'OK'
+    # Get the dispatcher to register handlers
+    dispatcher = updater.dispatcher
 
-# Ping route to keep the bot alive
-@app.route('/ping', methods=['GET'])
-def ping():
-    """Respond with a 'pong' to keep the bot alive"""
-    return "pong"
+    # Register the /start command handler
+    dispatcher.add_handler(CommandHandler("start", start))
 
-# Set up Telegram bot
-application = Application.builder().token(TOKEN).build()
+    # Register the message handler
+    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Add handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("help", help))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Start polling (long polling to receive updates)
+    updater.start_polling()
 
-# Run the Flask app
-if __name__ == "__main__":
-    # You can specify the port you want here, or let Render automatically pick it
-    port = int(os.getenv("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    # Run the bot until you send a signal to stop
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
