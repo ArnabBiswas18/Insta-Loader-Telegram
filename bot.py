@@ -1,5 +1,6 @@
 import logging
 import os
+import instaloader
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from dotenv import load_dotenv
@@ -15,21 +16,38 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize Instaloader
+L = instaloader.Instaloader()
+
 # Define command handler for /start
 async def start(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text('Hello! I am your bot. Send me a link and I\'ll process it for you.')
+    await update.message.reply_text('Hello! I am your bot. Send me an Instagram link, and I\'ll process it for you.')
 
-# Define a function to handle regular messages
+# Define a function to handle regular messages (process Instagram links)
 async def handle_message(update: Update, context: CallbackContext) -> None:
-    # Check if message contains a link (you can improve this as needed)
-    if update.message.entities:
-        for entity in update.message.entities:
-            if entity.type == 'url':
-                # Here you can add your logic to process the URL and send the file or response
-                await update.message.reply_text(f'Processing the link: {update.message.text}')
-                # You can replace this with actual download and file sending logic
-                return
-    await update.message.reply_text('Send me a link to process.')
+    message_text = update.message.text
+
+    # Check if message contains a link (specifically an Instagram link)
+    if "instagram.com" in message_text:
+        try:
+            # Download the content from Instagram using instaloader
+            post = instaloader.Post.from_shortcode(L.context, message_text.split("/")[-2])
+            media_url = post.url  # Get the URL of the media (image or video)
+            
+            # Check the type of content (image or video)
+            if post.is_video:
+                await update.message.reply_text("Sending you the video...")
+                await update.message.reply_video(media_url)
+            else:
+                await update.message.reply_text("Sending you the image...")
+                await update.message.reply_photo(media_url)
+
+        except Exception as e:
+            await update.message.reply_text(f"Error occurred: {str(e)}")
+            logger.error(f"Error processing link {message_text}: {e}")
+
+    else:
+        await update.message.reply_text("Please send a valid Instagram link.")
 
 def main() -> None:
     """Start the bot."""
